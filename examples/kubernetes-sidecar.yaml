@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: example-with-sentry-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: example-with-sentry-agent}
+  template:
+    metadata:
+      labels: {app: example-with-sentry-agent}
+    spec:
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: app
+          image: your-app-image:tag
+          env:
+            # Configure the application's Sentry SDK transport to POST its
+            # original envelope (including header DSN) to this local endpoint.
+            - name: SENTRY_AGENT_URL
+              value: http://127.0.0.1:5148
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+        - name: sentry-agent
+          image: ghcr.io/lessfantasy/sentry-agent:1
+          env:
+            - name: SENTRY_AGENT_LISTEN
+              value: 0.0.0.0:5148
+            - name: SENTRY_AGENT_ALLOWED_HOSTS
+              value: sentry.hhs.rocks
+            - name: SENTRY_AGENT_QUEUE_LIMIT
+              value: "1000"
+            - name: SENTRY_AGENT_QUEUE_BYTES
+              value: 64MB
+            - name: SENTRY_AGENT_RETRY_INTERVAL
+              value: 5s
+          resources:
+            requests: {cpu: 20m, memory: 80Mi}
+            limits: {cpu: 250m, memory: 160Mi}
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}
+          readinessProbe:
+            exec:
+              command: [/sentry-agent, probe, readyz]
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: [/sentry-agent, probe, healthz]
+            periodSeconds: 10
+# The agent queue is RAM-only. Restarting this container loses queued envelopes.
